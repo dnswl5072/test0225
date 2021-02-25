@@ -1,0 +1,27 @@
+# Pipeline to run basic code quality tests as part of pull requests to the master branch.
+
+resources:
+  containers:
+  - container: mlops
+    image: mcr.microsoft.com/mlops/python:latest
+
+trigger: none
+pr:
+  branches:
+    include:
+    - master
+
+pool:
+  # To use an MS agent:
+  # vmImage: ubuntu-latest
+  # otherwise, to use your own agent pool:
+  name: azure-sprint-pool
+
+container: mlops
+
+variables:
+- template: oilwells-variables-template.yml
+- group: <TODO: name of your variable group>
+
+steps:
+- template: code-quality-template.yml

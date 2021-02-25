@@ -1,0 +1,12 @@
+{
+    "training": {
+        "strategy": "stratified"
+    },
+    "evaluation": {},
+    "registration": {
+        "tags": [
+            "accuracy"
+        ]
+    },
+    "scoring": {}
+}

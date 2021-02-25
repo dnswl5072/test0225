@@ -1,0 +1,353 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "baseName": {
+      "type": "string",
+      "maxLength": 10,
+      "minLength": 3,
+      "metadata": {
+        "description": "The base name to use as prefix to create all the resources."
+      }
+    },
+    "workspace": {
+      "type": "string",
+      "defaultValue": "mlops-AML-WS"
+    },
+    "vmCount": {
+      "type": "int",
+      "defaultValue": 1
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus",
+      "allowedValues": [
+        "eastus",
+        "eastus2",
+        "southcentralus",
+        "southeastasia",
+        "westcentralus",
+        "westeurope",
+        "westus2",
+        "centralus"
+      ],
+      "metadata": {
+        "description": "Specifies the location for all resources."
+      }
+    },
+    "storageAccount": {
+      "type": "string",
+      "defaultValue": "[concat(toLower(parameters('baseName')), 'amlsa')]"
+    },
+    "keyvault": {
+      "type": "string",
+      "defaultValue": "[concat(parameters('baseName'),'-AML-KV')]"
+    },
+    "appInsights": {
+      "type": "string",
+      "defaultValue": "[concat(parameters('baseName'),'-AML-AI')]"
+    },
+    "acr": {
+      "type": "string",
+      "defaultValue": "[concat(toLower(parameters('baseName')),'amlcr')]"
+    },
+    "networkSecurityGroupRules": {
+      "type": "array",
+      "defaultValue": [
+        {
+          "name": "RDP",
+          "properties": {
+            "priority": 300,
+            "protocol": "TCP",
+            "access": "Allow",
+            "direction": "Inbound",
+            "sourceAddressPrefix": "*",
+            "sourcePortRange": "*",
+            "destinationAddressPrefix": "*",
+            "destinationPortRange": "3389"
+          }
+        }
+      ]
+    },
+    "subnetName": {
+      "type": "string",
+      "defaultValue": "default"
+    },
+    "addressPrefixes": {
+      "type": "array",
+      "defaultValue": [
+        "10.0.0.0/24"
+      ]
+    },
+    "subnets": {
+      "type": "array",
+      "defaultValue": [
+        {
+          "name": "default",
+          "properties": {
+            "addressPrefix": "10.0.0.0/24"
+          }
+        }
+      ]
+    },
+    "publicIpAddressType": {
+      "type": "string",
+      "defaultValue": "Dynamic"
+    },
+    "publicIpAddressSku": {
+      "type": "string",
+      "defaultValue": "Basic"
+    },
+    "osDiskType": {
+      "type": "string",
+      "defaultValue": "Premium_LRS"
+    },
+    "virtualMachineSize": {
+      "type": "string",
+      "defaultValue": "Standard_D2s_v3"
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "SprintUser"
+    },
+    "adminPassword": {
+      "type": "secureString",
+      "defaultValue": "1!AzureSprint"
+    }
+  },
+  "variables": {
+    "amlWorkspaceName": "[parameters('workspace')]",
+    "storageAccountName": "[parameters('storageAccount')]",
+    "storageAccountType": "Standard_LRS",
+    "keyVaultName": "[parameters('keyvault')]",
+    "tenantId": "[subscription().tenantId]",
+    "applicationInsightsName": "[parameters('appInsights')]",
+    "containerRegistryName": "[parameters('acr')]",
+    "networkSecurityGroupName": "[concat(parameters('baseName'), '-nsg')]",
+    "virtualMachinePrefix": "[concat(parameters('baseName'))]",
+    "networkInterfacePrefix": "[concat(parameters('baseName'), '-')]",
+    "publicIpAddressPrefix": "[concat(parameters('baseName'), '-')]",
+    "virtualNetworkName": "[concat(parameters('baseName'), '-', 'vnet')]",
+    "nsgId": "[resourceId(resourceGroup().name, 'Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]",
+    "vnetId": "[resourceId(resourceGroup().name,'Microsoft.Network/virtualNetworks', variables('virtualNetworkName'))]",
+    "subnetRef": "[concat(variables('vnetId'), '/subnets/', parameters('subnetName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2018-07-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "[variables('storageAccountType')]"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "encryption": {
+          "services": {
+            "blob": {
+              "enabled": true
+            },
+            "file": {
+              "enabled": true
+            }
+          },
+          "keySource": "Microsoft.Storage"
+        },
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2018-02-14",
+      "name": "[variables('keyVaultName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "tenantId": "[variables('tenantId')]",
+        "sku": {
+          "name": "standard",
+          "family": "A"
+        },
+        "accessPolicies": []
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2015-05-01",
+      "name": "[variables('applicationInsightsName')]",
+      "location": "[if(or(equals(parameters('location'),'eastus2'),equals(parameters('location'),'westcentralus')),'southcentralus',parameters('location'))]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web"
+      }
+    },
+    {
+      "type": "Microsoft.ContainerRegistry/registries",
+      "apiVersion": "2017-10-01",
+      "name": "[variables('containerRegistryName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "adminUserEnabled": true
+      }
+    },
+    {
+      "type": "Microsoft.MachineLearningServices/workspaces",
+      "apiVersion": "2018-11-19",
+      "name": "[variables('amlWorkspaceName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+        "[resourceId('Microsoft.Insights/components', variables('applicationInsightsName'))]",
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('containerRegistryName'))]"
+      ],
+      "sku": {
+        "name": "Enterprise",
+        "tier": "Enterprise"
+      },
+      "identity": {
+        "type": "systemAssigned"
+      },
+      "properties": {
+        "friendlyName": "[variables('amlWorkspaceName')]",
+        "keyVault": "[resourceId('Microsoft.KeyVault/vaults',variables('keyVaultName'))]",
+        "applicationInsights": "[resourceId('Microsoft.Insights/components',variables('applicationInsightsName'))]",
+        "containerRegistry": "[resourceId('Microsoft.ContainerRegistry/registries',variables('containerRegistryName'))]",
+        "storageAccount": "[resourceId('Microsoft.Storage/storageAccounts/',variables('storageAccountName'))]"
+      }
+    },
+    {
+      "name": "[variables('networkSecurityGroupName')]",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2019-02-01",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": "[parameters('networkSecurityGroupRules')]"
+      }
+    },
+    {
+      "name": "[variables('virtualNetworkName')]",
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2019-09-01",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": "[parameters('addressPrefixes')]"
+        },
+        "subnets": "[parameters('subnets')]"
+      }
+    },
+    {
+      "name": "[concat('VMDeployment-', copyIndex('vmcopy'))]",
+      "apiVersion": "2019-05-01",
+      "type": "Microsoft.Resources/deployments",
+      "dependsOn": [
+        "[concat('Microsoft.Network/networkSecurityGroups/', variables('networkSecurityGroupName'))]",
+        "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
+      ],
+      "copy": {
+        "name": "vmcopy",
+        "count": "[parameters('vmCount')]"
+      },
+      "properties": {
+        "mode": "Incremental",
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "resources": [
+            {
+              "name": "[concat(variables('networkInterfacePrefix'), copyIndex('vmcopy'))]",
+              "type": "Microsoft.Network/networkInterfaces",
+              "apiVersion": "2019-07-01",
+              "location": "[parameters('location')]",
+              "dependsOn": [
+                "[concat('Microsoft.Network/publicIpAddresses/', variables('publicIpAddressPrefix'), copyIndex('vmcopy'))]"
+              ],
+              "properties": {
+                "ipConfigurations": [
+                  {
+                    "name": "ipconfig1",
+                    "properties": {
+                      "subnet": {
+                        "id": "[variables('subnetRef')]"
+                      },
+                      "privateIPAllocationMethod": "Dynamic",
+                      "publicIpAddress": {
+                        "id": "[resourceId(resourceGroup().name, 'Microsoft.Network/publicIpAddresses', concat(variables('publicIpAddressPrefix'), copyIndex('vmcopy')))]"
+                      }
+                    }
+                  }
+                ],
+                "networkSecurityGroup": {
+                  "id": "[variables('nsgId')]"
+                }
+              }
+            },
+            {
+              "name": "[concat(variables('publicIpAddressPrefix'), copyIndex('vmcopy'))]",
+              "type": "Microsoft.Network/publicIpAddresses",
+              "apiVersion": "2019-02-01",
+              "location": "[parameters('location')]",
+              "properties": {
+                "publicIpAllocationMethod": "[parameters('publicIpAddressType')]"
+              },
+              "sku": {
+                "name": "[parameters('publicIpAddressSku')]"
+              }
+            },
+            {
+              "name": "[concat(variables('virtualMachinePrefix'), copyIndex('vmcopy'))]",
+              "type": "Microsoft.Compute/virtualMachines",
+              "apiVersion": "2019-07-01",
+              "location": "[parameters('location')]",
+              "dependsOn": [
+                "[concat('Microsoft.Network/networkInterfaces/', variables('networkInterfacePrefix'), copyIndex('vmcopy'))]"
+              ],
+              "properties": {
+                "hardwareProfile": {
+                  "vmSize": "[parameters('virtualMachineSize')]"
+                },
+                "storageProfile": {
+                  "osDisk": {
+                    "createOption": "fromImage",
+                    "managedDisk": {
+                      "storageAccountType": "[parameters('osDiskType')]"
+                    }
+                  },
+                  "imageReference": {
+                    "publisher": "microsoft-dsvm",
+                    "offer": "dsvm-win-2019",
+                    "sku": "server-2019",
+                    "version": "latest"
+                  }
+                },
+                "networkProfile": {
+                  "networkInterfaces": [
+                    {
+                      "id": "[resourceId('Microsoft.Network/networkInterfaces', concat(variables('networkInterfacePrefix'), copyIndex('vmcopy')))]"
+                    }
+                  ]
+                },
+                "osProfile": {
+                  "computerName": "[concat(variables('virtualMachinePrefix'), copyIndex('vmcopy'))]",
+                  "adminUsername": "[parameters('adminUsername')]",
+                  "adminPassword": "[parameters('adminPassword')]",
+                  "windowsConfiguration": {
+                    "enableAutomaticUpdates": true,
+                    "provisionVmAgent": true
+                  }
+                }
+              },
+              "identity": {
+                "type": "systemAssigned"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
